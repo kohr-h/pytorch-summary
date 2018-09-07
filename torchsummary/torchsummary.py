@@ -1,17 +1,24 @@
 import torch
 import torch.nn as nn
-from torch.autograd import Variable
 
 from collections import OrderedDict
 import numpy as np
 
 
-def summary(model, input_size, batch_size=-1, device="cuda"):
+def summary(model, *input_size, batch_size=-1, device="cuda"):
+    """Print a summary of the given model.
+    Parameters
+    ----------
+    model : torch.nn.Module
+        Model that should be summarized. Cannot be a single "primitive" layer.
+    input_size0, ..., input_sizeN : sequence of int
+        Size of an input that should be used for recording sizes, **not**
+        including the batch axis.
+    """
 
     def register_hook(module):
-
         def hook(module, input, output):
-            class_name = str(module.__class__).split(".")[-1].split("'")[0]
+            class_name = module.__class__.__name__
             module_idx = len(summary)
 
             m_key = "%s-%i" % (class_name, module_idx + 1)
@@ -42,23 +49,15 @@ def summary(model, input_size, batch_size=-1, device="cuda"):
             hooks.append(module.register_forward_hook(hook))
 
     device = device.lower()
-    assert device in [
-        "cuda",
-        "cpu",
-    ], "Input device is not valid, please specify 'cuda' or 'cpu'"
+    assert device.startswith(("cuda", "cpu")), "Invalid device " + device
 
-    if device == "cuda" and torch.cuda.is_available():
-        dtype = torch.cuda.FloatTensor
+    # check if there are multiple inputs to the network
+    if isinstance(input_size[0], (list, tuple)):
+        x = [torch.rand(2, *in_size).to(device) for in_size in input_size]
     else:
-        dtype = torch.FloatTensor
+        x = torch.rand(2, *input_size).to(device)
 
-    # multiple inputs to the network
-    if isinstance(input_size, tuple):
-        input_size = [input_size]
-
-    # batch_size of 2 for batchnorm
-    x = [torch.rand(2, *in_size).type(dtype) for in_size in input_size]
-    # print(type(x[0]))
+    model = model.to(device)
 
     # create properties
     summary = OrderedDict()
@@ -68,7 +67,6 @@ def summary(model, input_size, batch_size=-1, device="cuda"):
     model.apply(register_hook)
 
     # make a forward pass
-    # print(x.shape)
     model(*x)
 
     # remove these hooks
@@ -97,9 +95,11 @@ def summary(model, input_size, batch_size=-1, device="cuda"):
         print(line_new)
 
     # assume 4 bytes/number (float on cuda).
-    total_input_size = abs(np.prod(input_size) * batch_size * 4. / (1024 ** 2.))
-    total_output_size = abs(2. * total_output * 4. / (1024 ** 2.))  # x2 for gradients
-    total_params_size = abs(total_params.numpy() * 4. / (1024 ** 2.))
+    total_input_size = abs(np.prod(input_size) * batch_size * 4.0 / (1024 ** 2.0))
+    total_output_size = abs(
+        2.0 * total_output * 4.0 / (1024 ** 2.0)
+    )  # x2 for gradients
+    total_params_size = abs(total_params.numpy() * 4.0 / (1024 ** 2.0))
     total_size = total_params_size + total_output_size + total_input_size
 
     print("================================================================")
